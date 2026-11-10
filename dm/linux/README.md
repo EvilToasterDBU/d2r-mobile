@@ -74,10 +74,14 @@ runtime when present and otherwise reads it from
 `DM_SHADER_DIR`, `DM_ROMFS`, `DM_ROMFS_OVERLAY` and `DM_SAVE` can override these
 paths. Armada's system Vulkan loader, GPU driver and display stack remain host
 dependencies. The launcher also reads `DISPLAY` from the active Gamescope
-environment when a terminal did not inherit it. Never publish a personally
-bundled AppImage or its runtime pack; these files are generated from the user's
-game copy. The public GitHub release contains source and build instructions,
-not game-derived runtime files.
+environment when a terminal did not inherit it. The public GitHub release's
+Actions-built AppImage contains only the launcher and publicly buildable code.
+CI substitutes empty compile-time tables for data normally generated from the
+user's game files. It does not contain the rewritten modules, Vulkan shaders,
+resource overlay, RomFS or keys. To run that release artifact, first generate
+the Linux runtime locally as described above; or build a personal AppImage with
+`DM_BUNDLE_RUNTIME=1`. Never publish a personally bundled AppImage or its
+runtime pack: those files are generated from the user's game copy.
 Actual rendering, input and audio still need validation on Armada OS.
 The Armada launcher defaults to Russian (`DM_LANG=ru-RU`) and a 720-pixel
 internal short side; override the latter with `DM_LINUX_RENDER_HEIGHT=900` for
