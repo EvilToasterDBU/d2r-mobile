@@ -93,6 +93,45 @@ static void tsd_probe(void) {
     pthread_setspecific(g_keygate, 0);
     if (!ok) die("musl 线程键布局不符（tpidr_el0-%d 处不是 tsd 指针）：系统 libc 变了，需重测偏移并重出改写产物", DM_OHOS_TSD_OFF);
 }
+#elif defined(DM_LINUX)
+#define DM_PATCH_TARGET 3
+static uint64_t g_linux_tsd_off[KEY_N];
+static uint8_t *tsd_base(void) { uint64_t tp; __asm__ volatile("mrs %0, tpidr_el0" : "=r"(tp)); return (uint8_t *)tp; }
+static uint64_t slot_off(pthread_key_t key) {
+    for (unsigned i = 0; i < KEY_N; i++) if (key_value(i) == key) return g_linux_tsd_off[i];
+    die("Linux 键页请求未知 pthread key %#x", (unsigned)key); return 0;
+}
+static int mapped_page(uintptr_t address, size_t page_size, uintptr_t *cached, unsigned char *resident) {
+    uintptr_t page = address & ~((uintptr_t)page_size - 1);
+    if (page == *cached) return 1;
+    if (mincore((void *)page, page_size, resident)) return 0;
+    *cached = page; return 1;
+}
+static void tsd_probe(void) {
+    uint8_t *base = tsd_base(); long page_long = sysconf(_SC_PAGESIZE);
+    if (!base || page_long <= 0 || (page_long & (page_long - 1))) die("Linux 线程指针或页尺寸无效");
+    size_t page_size = (size_t)page_long; uintptr_t cached_page = UINTPTR_MAX; unsigned char resident = 0;
+    for (unsigned i = 0; i < KEY_N; i++) {
+        pthread_key_t key = key_value(i);
+        void *magic = (void *)(uintptr_t)(0x6d4d7d5d4d3d2d1dull ^ ((uint64_t)i << 48));
+        if (pthread_setspecific(key, magic)) die("Linux pthread_setspecific probe failed for key %u", i);
+        int64_t found = 0;
+        /* On AArch64 glibc, tpidr_el0 points into the TCB: the inline key
+         * data is commonly before TP, unlike the positive-offset layout on
+         * x86_64. Probe both sides because the exact TCB layout is libc-specific. */
+        for (int64_t off = -0x4000; off <= 0x4000; off += 8) {
+            uintptr_t address = (uintptr_t)base + (uintptr_t)off;
+            if (!mapped_page(address, page_size, &cached_page, &resident)) continue;
+            if (*(void **)address == magic) { found = off; break; }
+        }
+        int roundtrip = pthread_getspecific(key) == magic;
+        pthread_setspecific(key, NULL);
+        if (!found || !roundtrip) die("glibc pthread key %u is not in the inline TSD block; Linux patch target needs a different libc layout", i);
+        for (unsigned j = 0; j < i; j++) if (g_linux_tsd_off[j] == found) die("glibc TSD probe returned a duplicate slot");
+        g_linux_tsd_off[i] = (uint64_t)found;
+        LOG("glibc TSD key %u offset %+lld", i, (long long)found);
+    }
+}
 #else
 #define DM_PATCH_TARGET 0
 static uint8_t *tsd_base(void) { uint64_t b; __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(b)); return (uint8_t *)(b & ~7ull); }
@@ -104,7 +143,7 @@ static void tsd_probe(void) {}
 static void tsd_check(void) {
     pthread_setspecific(g_key18, (void *)0x1234);
     uint64_t off = *(uint64_t *)(g_mod[0].base + g_mod[0].key_page_off + g_mod[0].key_idx[KEY_K18] * 8);
-    if (*(uint64_t *)(tsd_base() + off) != 0x1234) die("TSD 布局不符");
+    if (*(uint64_t *)((uintptr_t)tsd_base() + (uintptr_t)off) != 0x1234) die("TSD 布局不符");
     pthread_setspecific(g_key18, 0);
 }
 
@@ -233,7 +272,7 @@ static void read_layout(module_t *m, const char *dir) {
     fclose(f);
     if (!m->patch_off || m->key_page_off % 0x4000 || m->key_page_size != 0x4000 || seen != 0xff)
         die("%s: 产物是旧改写器出的，换成当前代号（dm/PRODUCT）的产物", path);
-    static const char *const tname[] = {"苹果", "安卓", "鸿蒙"}, *const tflag[] = {"apple", "android", "ohos"};
+    static const char *const tname[] = {"苹果", "安卓", "鸿蒙", "Linux"}, *const tflag[] = {"apple", "android", "ohos", "linux"};
     if (target != DM_PATCH_TARGET) die("%s: 产物是给%s出的（TARGET %lu），本机要 %s 的产物（patch_nso.py 用 DM_TARGET=%s 重出）", path,
                                        target < 3 ? tname[target] : "未知平台", target, tname[DM_PATCH_TARGET], tflag[DM_PATCH_TARGET]);
 }

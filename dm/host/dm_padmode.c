@@ -2,7 +2,7 @@
 // 原版拼布局路径 = "data/global/ui/Layouts/" + 前缀 + 面板名 + "HD.json"（main+0xb84750），前缀取自只读数据段里的三个串
 // 「Controller/Console/Switch/」「Controller/Console/」「Controller/」（main+0xb1d1c8 / 0xb1d384 选，先试专用目录再退通用目录）。
 // 触屏覆盖层把触屏版整套布局放在 layouts 下三个新目录（gen_romfs_overlay.py，原版 layouts/controller/ 原样保留），这里把三个前缀改写成同长的新目录名：
-//   · 开机：覆盖层根目录有标记文件 ctrl_touch 才改写（没有触屏覆盖层的宿主局照原版），在游戏建任何面板之前；
+//   · 开机：覆盖层根目录有标记文件 ctrl_touch 才改写（没有触屏覆盖层的宿主局照原版），在游戏建任何面板之前；Mac App 与 Linux 掌机缺省选手柄布局；
 //   · 切换：改写前缀后让游戏重载布局——只对 GetOperationMode 报另一个运行模式、推一次运行模式通知，几帧后报回原值再推一次（hle_oe.c dm_oe_ui_opmode）。
 //     原版收到运行模式变化会按当前前缀重建全部面板；手柄样式与性能模式不动，所以不弹「重新连接控制器」、出图分辨率不变（宿主实测）。
 // 字符串：手柄说法 ↔ 触摸说法（「按 A 使用」→「双击使用」等 25 条）也按模式换。覆盖层不改字符串文件，旁路表 touch_strings.tsv（gen_romfs_overlay.py）给 键 / 原文校验 / 触摸说法；
@@ -158,10 +158,21 @@ void dm_padmode_boot(void) {   // 开机：游戏建面板之前（main.c，nnMa
     if (!m || !getenv("DM_ROMFS_OVERLAY")) return;
     if (!dm_overlay_file("ctrl_touch", mk, sizeof mk)) { LOG("手柄 / 触屏布局：覆盖层没有 ctrl_touch 标记，照原版布局"); return; }
     int pad = getenv("DM_APP") != NULL;   // Mac App：没有触屏圆钮与底栏的绘制层，开机就用原版手柄版（我们的功能页在手柄版布局里同样有），之后也不切 | Mac App: there is no drawing layer for the touch buttons and bottom bar, so it starts in the original gamepad UI (our feature pages exist in the gamepad layout as well) and never switches afterwards
+#if defined(DM_LINUX)
+    // The Linux handheld is launched with a controller and has no touch HUD.
+    // Keep the Switch controller layouts by default; DM_LINUX_TOUCH_UI=1 is
+    // an explicit opt-in for touch layouts.
+    const char *linux_touch_ui = getenv("DM_LINUX_TOUCH_UI");
+    pad = !(linux_touch_ui && linux_touch_ui[0] == '1');
+#endif
 #if TARGET_OS_OSX
     g_app = pad;
 #endif
+#if defined(DM_LINUX)
+    g_glyph_have[DM_GLYPH_KBD] = 0;   // Linux handheld has a controller, so keep the original Switch button glyphs.
+#else
     g_glyph_have[DM_GLYPH_KBD] = pad && dm_overlay_file(k_glyph_mark[DM_GLYPH_KBD], mk, sizeof mk);   // 键盘键帽只有 Mac App 用 | Keyboard glyphs are used only by the Mac App
+#endif
     g_glyph_have[DM_GLYPH_XBOX] = dm_overlay_file(k_glyph_mark[DM_GLYPH_XBOX], mk, sizeof mk);
     g_glyph = g_glyph_next = g_glyph_have[DM_GLYPH_KBD] ? DM_GLYPH_KBD : DM_GLYPH_PAD; atomic_store(&g_glyph_want, g_glyph);   // Mac App 开机先用键盘键帽（多数人没接手柄）；实体手柄一有输入就按它的类型换 | The Mac App starts with keyboard glyphs (most people have no controller connected); as soon as a physical controller gives input, switch by its type
     g_glyph_have[DM_GLYPH_PS] = dm_overlay_file(k_glyph_mark[DM_GLYPH_PS], mk, sizeof mk);

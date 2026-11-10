@@ -76,7 +76,7 @@ static void guest_main(void) {
     ((fnp)req("_ZN2nn2os11SetHostArgvEPPc"))(g_argv);
     game_seed_maybe(); save_throttle_patch();
     { void dm_guest_spawn_selftest(void); dm_guest_spawn_selftest(); }   // DM_GUEST_SPAWN_TEST 宿主客体线程自检（hle_guestthread.c） | DM_GUEST_SPAWN_TEST self-test of host-created guest threads (hle_guestthread.c)
-    { void dm_padmode_boot(void); dm_padmode_boot(); }   // 触屏覆盖层在：布局前缀改指触屏版（dm_padmode.c），要在游戏建面板之前 | Touch overlay present: repoint the layout prefixes to the touch version (dm_padmode.c); must happen before the game builds its panels
+    { void dm_padmode_boot(void); dm_padmode_boot(); }   // 游戏建面板前选择手柄 / 触屏布局（dm_padmode.c） | Select controller / touch layouts before the game builds its panels (dm_padmode.c)
     LOG(">>> nnMain"); ((fn0)req("nnMain"))();
     LOG("nnMain returned");
 }

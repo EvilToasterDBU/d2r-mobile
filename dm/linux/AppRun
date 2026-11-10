@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+APPDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DM_ROOT=${DM_ROOT:-"$HOME/dm-work"}
+
+# Armada's Gamescope session keeps its Xwayland display in this environment
+# file; GUI terminals do not always inherit it. Prefer that active :0 display.
+if [ -z "${DISPLAY:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -r "$XDG_RUNTIME_DIR/gamescope-environment" ]; then
+    while IFS='=' read -r key value; do
+        case "$key" in
+            DISPLAY) DISPLAY=$value ;;
+            GAMESCOPE_WAYLAND_DISPLAY) GAMESCOPE_WAYLAND_DISPLAY=$value ;;
+        esac
+    done < "$XDG_RUNTIME_DIR/gamescope-environment"
+    [ -z "${DISPLAY:-}" ] || export DISPLAY
+    [ -z "${GAMESCOPE_WAYLAND_DISPLAY:-}" ] || export GAMESCOPE_WAYLAND_DISPLAY
+fi
+if [ -n "${DISPLAY:-}" ] && { [ -z "${SDL_VIDEODRIVER:-}" ] || [ "$SDL_VIDEODRIVER" = offscreen ]; }; then
+    SDL_VIDEODRIVER=x11
+    export SDL_VIDEODRIVER
+fi
+
+BUNDLED_PACK="$APPDIR/usr/share/d2r-mobile/runtime"
+if [ -d "$BUNDLED_PACK/out" ]; then
+    DEFAULT_PACK=$BUNDLED_PACK
+else
+    DEFAULT_PACK="$DM_ROOT/build/linux/linux"
+fi
+DM_PACK=${DM_PACK:-"$DEFAULT_PACK"}
+DM_LINUX_OUT=${DM_LINUX_OUT:-"$DM_PACK/out"}
+DM_SHADER_DIR=${DM_SHADER_DIR:-"$DM_PACK/shaders"}
+DM_ROMFS=${DM_ROMFS:-"$DM_ROOT/data/switch/3.3.94012/Update/RomFS"}
+DM_ROMFS_OVERLAY=${DM_ROMFS_OVERLAY:-"$DM_PACK/overlay"}
+DM_SAVE=${DM_SAVE:-"$DM_ROOT/save/linux"}
+DM_TEMP=${DM_TEMP:-"$DM_ROOT/run/linux/temp"}
+DM_LANG=${DM_LANG:-ru-RU}
+DM_LINUX_RENDER_HEIGHT=${DM_LINUX_RENDER_HEIGHT:-720}
+
+for required in "$DM_LINUX_OUT/main.patched.bin" "$DM_LINUX_OUT/sdk.patched.bin" \
+                "$DM_SHADER_DIR" \
+                "$DM_ROMFS_OVERLAY" "$DM_ROMFS/data/build_manifest.psv"; do
+    if [ ! -e "$required" ]; then
+        printf 'Missing runtime input: %s\n' "$required" >&2
+        printf 'The AppImage needs its bundled runtime, or set DM_LINUX_OUT / DM_SHADER_DIR / DM_ROMFS_OVERLAY to external runtime paths.\n' >&2
+        exit 1
+    fi
+done
+if ! find "$DM_SHADER_DIR" -maxdepth 1 -type f -name '*.xgs' -print -quit | grep -q .; then
+    printf 'No Vulkan shader bundles found in %s\n' "$DM_SHADER_DIR" >&2
+    exit 1
+fi
+
+mkdir -p "$DM_SAVE" "$DM_TEMP"
+export DM_ROOT DM_ROMFS DM_SAVE DM_TEMP DM_SHADER_DIR DM_LANG DM_LINUX_RENDER_HEIGHT
+export DM_ROMFS_OVERLAY
+LD_LIBRARY_PATH="$APPDIR/usr/lib/aarch64-linux-gnu:$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH
+exec "$APPDIR/usr/bin/d2r-mobile" "$DM_LINUX_OUT" main sdk "$@"

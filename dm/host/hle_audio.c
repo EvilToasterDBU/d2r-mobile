@@ -32,6 +32,15 @@ static dm_sem sem_new(void) { dm_sem s = malloc(sizeof *s); if (!s || sem_init(s
 static void sem_up(dm_sem s) { sem_post(s); }
 static void sem_down(dm_sem s) { while (sem_wait(s)) {} }
 static void sem_free(dm_sem s) { sem_destroy(s); free(s); }
+#elif defined(DM_LINUX)
+#include <SDL.h>
+#include <semaphore.h>
+typedef SDL_AudioDeviceID dm_audev;
+typedef sem_t *dm_sem;
+static dm_sem sem_new(void) { dm_sem s = malloc(sizeof *s); if (!s || sem_init(s, 0, 0)) die("audio semaphore"); return s; }
+static void sem_up(dm_sem s) { sem_post(s); }
+static void sem_down(dm_sem s) { while (sem_wait(s)) {} }
+static void sem_free(dm_sem s) { sem_destroy(s); free(s); }
 #else
 #include <aaudio/AAudio.h>
 #include <semaphore.h>
@@ -292,6 +301,36 @@ static int au_open(aout *a) {   // 0 = 声卡开好了；-1 = 开不了（a->au 
 static int dev_start(aout *a) { return OH_AudioRenderer_Start(a->au) == AUDIOSTREAM_SUCCESS ? 0 : -1; }
 static void dev_stop(aout *a) { OH_AudioRenderer_Stop(a->au); }
 static void dev_close(aout *a) { OH_AudioRenderer_Release(a->au); a->au = NULL; }
+#elif defined(DM_LINUX)
+static void sdl_audio_render(void *ctx, Uint8 *stream, int length) {
+    if (length > 0) render(ctx, stream, (uint32_t)length);
+}
+static int au_open(aout *a) {
+    a->mix = a->ch == 6;
+    if (a->mix && !a->mixbuf) a->mixbuf = malloc(MIXMAX * 12);
+    if (a->mix && !a->mixbuf) { a->au = 0; LOG("audio: no buffer for 5.1 downmix; using silent sink"); return -1; }
+    int och = a->mix ? 2 : a->ch;
+    if (och != 1 && och != 2) { a->au = 0; LOG("audio: unsupported SDL channel count %d; using silent sink", och); return -1; }
+    SDL_AudioSpec want = {0}, have = {0};
+    want.freq = RATE;
+    want.format = AUDIO_S16SYS;
+    want.channels = (Uint8)och;
+    want.samples = 256;
+    want.callback = sdl_audio_render;
+    want.userdata = a;
+    a->au = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    if (!a->au) { LOG("audio: SDL output unavailable (%s); using silent sink", SDL_GetError()); return -1; }
+    if (have.freq != RATE || have.format != AUDIO_S16SYS || have.channels != och) {
+        LOG("audio: SDL returned incompatible format %d Hz / %u / %u channels; using silent sink", have.freq, have.format, have.channels);
+        SDL_CloseAudioDevice(a->au); a->au = 0; return -1;
+    }
+    if (a->mix) LOG("audio: downmixing 5.1 output to stereo");
+    LOG("audio: SDL output %d Hz, %u channels, %u-frame callback", have.freq, have.channels, have.samples);
+    return 0;
+}
+static int dev_start(aout *a) { if (!a->au) return -1; SDL_PauseAudioDevice(a->au, 0); return 0; }
+static void dev_stop(aout *a) { if (a->au) SDL_PauseAudioDevice(a->au, 1); }
+static void dev_close(aout *a) { if (a->au) SDL_CloseAudioDevice(a->au); a->au = 0; }
 #else
 // 安卓：AAudio 低延迟输出流（16 位、48 kHz、游戏用途），回调直接调 render。
 // 流断开（耳机插拔、蓝牙切换、系统音频服务重启）时 AAudio 在错误回调里通知：回调里不能关流，交给一条普通线程关掉重开，原来在播就接着播。

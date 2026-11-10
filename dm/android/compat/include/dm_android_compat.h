@@ -1,9 +1,7 @@
-// 安卓构建强制包含（CMake -include）：宿主源码里零散用到的苹果 libc 扩展，在 bionic 上给出同名同语义的薄实现。
-// 只放「一行能说清、语义完全对得上」的；对不上的（Mach 线程挂起、实时调度策略、GCD、音频）在原文件按 __APPLE__ 分支各自实现，不在这里假装。
-// Force-included in the Android build (CMake -include): Apple libc extensions used here and there in the host source, given thin implementations with the same name and semantics on bionic.
-// Only things that are "explainable in one line with fully matching semantics" go here; those that do not match (Mach thread suspension, real-time scheduling policy, GCD, audio) are implemented in their own files under __APPLE__ branches, not faked here.
+// Android, HarmonyOS and native Linux builds force-include this compatibility header: Apple libc extensions used in the shared host get thin implementations with matching POSIX/Linux semantics.
+// Platform-specific behavior that does not match (Mach thread suspension, real-time scheduling policy, GCD, audio) stays in the frontend or the platform branches in the original source files.
 #pragma once
-#if defined(__ANDROID__) || defined(__OHOS__)
+#if defined(__ANDROID__) || defined(__OHOS__) || defined(DM_LINUX)
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -23,7 +21,7 @@ static inline uint64_t clock_gettime_nsec_np(clockid_t c) {
     struct timespec ts; if (clock_gettime(c, &ts)) return 0;
     return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
 }
-#ifndef __OHOS__   // musl 自带 | musl has its own
+#if !defined(__OHOS__) && !defined(DM_LINUX)   // musl / glibc already provide this | musl / glibc already provide this
 static inline int getdtablesize(void) { return (int)sysconf(_SC_OPEN_MAX); }
 #endif
 static inline size_t pthread_get_stacksize_np(pthread_t t) {

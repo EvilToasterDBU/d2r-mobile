@@ -9,11 +9,13 @@
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
-// 手机产品（iOS、安卓、鸿蒙）：玩家装的包——缺省开触屏默认设置、真实声音、性能记录、3D 渲染比例等；与之相对的是 Mac 开发宿主（闸门 / 对拍缺省全关）。
+// 手机 / 掌机产品（iOS、安卓、鸿蒙、DM_LINUX）：玩家装的包——缺省开触屏默认设置、真实声音、性能记录、3D 渲染比例等；与之相对的是 Mac 开发宿主（闸门 / 对拍缺省全关）。
 // 只表示「产品缺省」；真正依赖 iOS 系统的分支（内嵌签名代码段、CoreFoundation 等）仍按 TARGET_OS_IPHONE。
-// Phone product (iOS, Android, HarmonyOS): the package players install -- touch default settings, real sound, performance logging, 3D render scale etc. are on by default; the counterpart is the Mac development host (gates / A-B comparisons, all off by default).
+// Phone / handheld product (iOS, Android, HarmonyOS, DM_LINUX): player builds enable touch defaults, real sound, performance logging and 3D render scaling; the counterpart is the Mac development host (gates / A-B comparisons, all off by default).
 // It only means "product defaults"; branches that truly depend on the iOS system (embedded signed code segments, CoreFoundation, etc.) still use TARGET_OS_IPHONE.
-#if defined(__ANDROID__) || defined(__OHOS__) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
+// Phone / handheld product (iOS, Android, HarmonyOS, DM_LINUX): player-facing builds enable touch defaults, real audio,
+// performance logging and 3D render scaling. The Mac host is a development tool with gates / A-B comparisons off by default.
+#if defined(__ANDROID__) || defined(__OHOS__) || defined(DM_LINUX) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
 #define DM_PHONE 1
 #else
 #define DM_PHONE 0

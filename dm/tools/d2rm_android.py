@@ -118,7 +118,7 @@ def main():
         elif args[0] == '--warm-seed': seed = os.path.abspath(args[1])
         else: break
         args = args[2:]
-    if len(args) != 2 or T not in ('android', 'ohos'): sys.exit('用法：d2rm_android.py [--target ohos] [--warm-seed <预热种子>] <游戏文件目录> <输出目录>')
+    if len(args) != 2 or T not in ('android', 'ohos', 'linux'): sys.exit('用法：d2rm_android.py [--target ohos|linux] [--warm-seed <预热种子>] <游戏文件目录> <输出目录>')
     seed = warm_seed_load(seed)
     game, dst = (os.path.abspath(x) for x in args)
     for st in (sys.stdout, sys.stderr):
@@ -128,17 +128,18 @@ def main():
     dotnet = check_env(game)
     P = open(os.path.join(DM, 'PRODUCT')).readline().strip()
     romfs = os.path.join(game, 'RomFS'); stage = os.path.join(ROOT, 'build', 'pack', T); shutil.rmtree(stage, ignore_errors=True); os.makedirs(stage)
-    final = os.path.join(dst, 'android') if T == 'android' else os.path.join(dst, 'harmony', 'dm')
+    final = os.path.join(dst, 'android') if T == 'android' else os.path.join(dst, 'harmony', 'dm') if T == 'ohos' else os.path.join(dst, 'linux')
     say('产物代号 %s；做好的文件夹放在 %s' % (P, final))
 
-    # 一、改写游戏程序（安卓 / 鸿蒙目标）
-    # 1. Rewrite the game program (Android / HarmonyOS target)
-    out = os.path.join(ROOT, 'build', 'cache', 'dm', 'out', P + '-' + T); os.makedirs(out, exist_ok=True)
+    # 一、改写游戏程序。Linux 默认保留 Switch 原始规则；移动端仍用触屏产品规则。
+    # 1. Rewrite the game program. Linux keeps the original Switch rules by default; mobile targets use the touchscreen product rules.
+    ruleset = os.environ.get('DM_RULESET', 'native' if T == 'linux' else 'touch-run-v4')
+    if ruleset not in ('native', 'touch-run-v4'): die('未知规则域：%s' % ruleset)
+    out = os.path.join(ROOT, 'build', 'cache', 'dm', 'out', P + '-' + T + '-' + ruleset); os.makedirs(out, exist_ok=True)
     def patch():
-        for m in MODS: run([PY, os.path.join(HERE, 'patch_nso.py'), os.path.join(game, 'ExeFS', m), out, m], env={'DM_TARGET': T, 'DM_RULESET': 'touch-run-v4'},
+        for m in MODS: run([PY, os.path.join(HERE, 'patch_nso.py'), os.path.join(game, 'ExeFS', m), out, m], env={'DM_TARGET': T, 'DM_RULESET': ruleset},
                            log=os.path.join(out, m + '.patch.log'), what='改写 ' + m)
-    # 做过的标准：产物齐，且产物记下的改写器指纹（build_src.sha256）就是这份源码的 patch_nso.py——改写器更新过（产物代号可能没变）就重做
-    # Done means: the products are complete and the rewriter fingerprint they record (build_src.sha256) is this source's patch_nso.py -- redo it when the rewriter was updated (the product code may not have changed)
+    # Done means: every module was built by this rewriter and under this ruleset.
     src = hashlib.sha256(open(os.path.join(HERE, 'patch_nso.py'), 'rb').read()).hexdigest()
     def patched():
         try: rec = open(os.path.join(out, 'build_src.sha256')).read().split()[0]
@@ -165,7 +166,7 @@ def main():
     say('生成覆盖层')
     # 安卓没有 iCloud（自定义页那一行只有 iOS / Mac 的 cloud_ios.m 读）：DM_OVERLAY_NO_ICLOUD=1 让 touch_layout.py 不出这一行
     # Android has no iCloud (only iOS / Mac cloud_ios.m reads that Custom page row): DM_OVERLAY_NO_ICLOUD=1 makes touch_layout.py leave the row out
-    run([PY, os.path.join(IOS, 'tools', 'gen_romfs_overlay.py'), romfs, os.path.join(stage, 'overlay')], cwd=IOS, env=dict({'DM_ROMFS_SRC': romfs}, **({'DM_OVERLAY_NO_ICLOUD': '1'} if T == 'android' else {})), log=os.path.join(stage, 'gen_overlay.log'), what='生成覆盖层')
+    run([PY, os.path.join(IOS, 'tools', 'gen_romfs_overlay.py'), romfs, os.path.join(stage, 'overlay')], cwd=IOS, env=dict({'DM_ROMFS_SRC': romfs}, **({'DM_OVERLAY_NO_ICLOUD': '1'} if T in ('android', 'linux') else {})), log=os.path.join(stage, 'gen_overlay.log'), what='生成覆盖层')
     sys.path.insert(0, os.path.join(DM, 'android', 'tools')); import stage_touch_assets
     hud = os.path.join(IOS, 'Gen', 'assets', 'NativeHUD', 'v4', 'hud_v4_ui')
     stage_touch_assets.stage(os.path.join(gen, 'TouchArt'), hud, os.path.join(stage, 'overlay'))
@@ -213,7 +214,8 @@ def main():
     if T == 'android' and os.path.isdir(os.path.join(stage, 'overlay_variants')): shutil.copytree(os.path.join(stage, 'overlay_variants'), os.path.join(part, 'overlay_variants'))
     shutil.rmtree(final, ignore_errors=True); os.replace(part, final)
     size = sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(final) for f in fs)
-    if T == 'ohos': say('好了：%s（%.0f MB）。在手机上建一个「D2R Mobile」文件夹，把这个 dm 文件夹和游戏资源（%s 整个拷过去，叫 data）并排放进去，'
+    if T == 'linux': say('好了：%s（%.0f MB）。Linux runtime 文件包含游戏内容，请 оставьте их в личном каталоге и не распространяйте.' % (final, size / 1048576))
+    elif T == 'ohos': say('好了：%s（%.0f MB）。在手机上建一个「D2R Mobile」文件夹，把这个 dm 文件夹和游戏资源（%s 整个拷过去，叫 data）并排放进去，'
                         '打开应用按提示选「D2R Mobile」导入。这里面有游戏内容，请只自己用' % (final, size / 1048576, os.path.join(romfs, 'data')))
     else: say('好了：%s（%.0f MB）。把这个 android 文件夹整个拷到手机的 Download/S2X/D2R Mobile/ 下（游戏资源放在同一处的 data 文件夹：%s 整个拷过去），'
               '打开 App 会自己导入。这里面有游戏内容，请只自己用' % (final, size / 1048576, os.path.join(romfs, 'data')))

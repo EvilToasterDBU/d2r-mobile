@@ -1386,6 +1386,13 @@ static double present_auto_hz(double screen_hz) {
     // Android has no Metal display-link pacer, so apply the power-saving target here.
     if (mtl_fps_target() == 30) return dm_pace_hz(screen_hz, 30);
 #endif
+#ifdef __linux__
+    // Keep the verified 60 fps behavior by default. A 120 Hz panel can be
+    // explicitly tested with DM_LINUX_FPS=120; pacing remains synchronized to
+    // an integer refresh interval instead of running uncapped.
+    const char *linux_fps = getenv("DM_LINUX_FPS");
+    if (linux_fps && atoi(linux_fps) == 120) return dm_pace_hz(screen_hz, 120);
+#endif
     // 自适应目标是最高60，而旧Apple策略是至少60；两者不共用取整方向。首帧/刷新率改变也受上限约束。
     // Adaptive pacing caps at 60; the legacy Apple policy has a floor of 60. Cap the first frame and refresh changes too.
     if (pace_adapt_enabled() && screen_hz > 0) return screen_hz / nvn_adaptive_divisor(screen_hz, g_pa_k, g_pa_screen_hz);

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=D2R Mobile
+Comment=Diablo II: Resurrected native Linux launcher
+Exec=AppRun
+Icon=d2r-mobile
+Terminal=false
+Categories=Game;RolePlaying;
+StartupNotify=true
